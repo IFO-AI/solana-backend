@@ -7,6 +7,8 @@ import {
   TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
+  Transaction,
+  sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -16,6 +18,10 @@ import {
   createMintToInstruction,
   getAssociatedTokenAddress,
   MINT_SIZE,
+  transfer,
+  getOrCreateAssociatedTokenAccount,
+  createTransferCheckedInstruction,
+  Account,
 } from "@solana/spl-token";
 import {
   Metaplex,
@@ -28,6 +34,7 @@ import {
   createCreateMetadataAccountV3Instruction,
 } from "@metaplex-foundation/mpl-token-metadata";
 import { createSolanaKeypair } from "./wallet";
+import { decodeBase58ToKeypair } from "./util";
 
 const DEFAULT_MINT_CONFIG = {
   numDecimals: 9,
@@ -163,7 +170,8 @@ export async function createMintTransaction(
   return { transaction, mint: mint.publicKey };
 }
 
-export async function createToken(
+export async function createAndSendToken(
+  destinationWallet: PublicKey,
   keypair?: Keypair,
   url: string = clusterApiUrl("devnet"),
   metadata: UploadMetadataInput = DEFAULT_TOKEN_METADATA,
@@ -183,7 +191,7 @@ export async function createToken(
     solanaConnection,
     metaplex,
     keypair,
-    keypair.publicKey,
+    destinationWallet,
     keypair.publicKey,
     keypair.publicKey,
     mintConfig.numberTokens,
@@ -209,4 +217,47 @@ export async function createToken(
   );
 
   return { transactionId, mint: mint.toString() };
+}
+
+export async function createATA(
+  keypair: Keypair,
+  mint: PublicKey,
+  owner: PublicKey,
+  url: string = clusterApiUrl("devnet")
+): Promise<Account> {
+  const connection = new Connection(url);
+  const ata = await getOrCreateAssociatedTokenAccount(
+    connection,
+    keypair,
+    mint,
+    owner
+  );
+  return ata;
+}
+
+export async function sendTokens(
+  destinationWallet: PublicKey,
+  keypair: Keypair,
+  mint: PublicKey,
+  url: string = clusterApiUrl("devnet"),
+  noOfTokens = 100
+) {
+  console.log("Sending tokens...");
+  const connection = new Connection(url);
+
+  const keypairATA = await createATA(keypair, mint, keypair.publicKey);
+
+  const destinationATA = await createATA(keypair, mint, destinationWallet);
+
+  const tx = await transfer(
+    connection,
+    keypair,
+    keypairATA.address,
+    destinationATA.address,
+    keypair,
+    noOfTokens * Math.pow(10, DEFAULT_MINT_CONFIG.numDecimals)
+  );
+  console.log(`Transaction ID: ${tx}`);
+
+  return "";
 }
